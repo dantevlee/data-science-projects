@@ -10,7 +10,7 @@ def scrape_target_products(url):
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'html.parser')
-        products = soup.find_all('li', class_='h-m-bottom-micro')
+        products = soup.find_all('div', class_='ProductCard')
 
         product_data = []
         for product in products:

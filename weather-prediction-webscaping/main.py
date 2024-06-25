@@ -1,69 +1,92 @@
-from bs4 import BeautifulSoup
 import requests
+from bs4 import BeautifulSoup
 import pandas as pd
-from sklearn.linear_model import LinearRegression
-import numpy as np
+import re  # Import regex for pattern matching
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
 
-# Function to scrape weather data
+# Function to scrape weather data from National Weather Service (NWS) website
 def scrape_weather_data():
-    url = 'https://weather.com/weather/monthly/l/USNY0996:1:US'
+    url = 'https://forecast.weather.gov/MapClick.php?lat=37.7749&lon=-122.4194'
     response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(response.content, 'html.parser')
     
-    # Example: Extracting temperature data from table
-    table = soup.find('table', {'class': 'twc-table'})
-    rows = table.find_all('tr', {'data-head': 'Hi'})
+    # Initialize lists to store scraped data
+    temperature_data = []
+    humidity_data = []
     
-    dates = []
-    temperatures = []
+    # Extract temperature data
+    for temp in soup.find_all(class_='temp'):
+        # Clean and extract numeric temperature values
+        temp_value = re.findall(r'\d+', temp.text.strip())
+        if temp_value:
+            temperature_data.append(float(temp_value[0]))
+        else:
+            temperature_data.append(None)  # Handle missing or unexpected data
     
-    for row in rows:
-        date = row.find('td', {'data-day': True}).text.strip()
-        temperature = row.find('td', {'class': 'temp'}).text.strip()
-        
-        dates.append(date)
-        temperatures.append(temperature)
+    # Extract humidity data
+    for hum in soup.find_all(class_='humidity'):
+        # Clean and extract numeric humidity values
+        hum_value = re.findall(r'\d+', hum.text.strip())
+        if hum_value:
+            humidity_data.append(float(hum_value[0]))
+        else:
+            humidity_data.append(None)  # Handle missing or unexpected data
     
-    # Create a DataFrame
-    df = pd.DataFrame({'Date': dates, 'Temperature': temperatures})
-    return df
+    # Ensure temperature and humidity data have the same length
+    min_length = min(len(temperature_data), len(humidity_data))
+    temperature_data = temperature_data[:min_length]
+    humidity_data = humidity_data[:min_length]
+    
+    # Create a dataframe
+    weather_df = pd.DataFrame({'Temperature (F)': temperature_data,
+                               'Humidity (%)': humidity_data})
+    
+    # Drop rows with missing data
+    weather_df.dropna(inplace=True)
+    
+    return weather_df
 
-# Scrape data
-weather_data = scrape_weather_data()
-print(weather_data.head())
+# Function to predict weather using RandomForestRegressor and plot results
+def predict_weather(weather_df):
+    X = weather_df[['Temperature (F)']]
+    y = weather_df['Humidity (%)']
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    print(f'Mean Squared Error: {mse}')
+    
+    # Example prediction for a new temperature value
+    new_temperature = [[70.0]]  # Example: Predict humidity for 70°F
+    predicted_humidity = model.predict(new_temperature)
+    print(f'Predicted Humidity: {predicted_humidity}')
+    
+    # Plotting predictions
+    plt.figure(figsize=(10, 6))
+    plt.scatter(X_test, y_test, color='blue', label='Actual Humidity')
+    plt.scatter(new_temperature, predicted_humidity, color='red', label='Predicted Humidity', marker='x', s=100)
+    plt.plot(X_test, y_pred, color='green', linewidth=2, label='Regression Line')
+    plt.xlabel('Temperature (F)')
+    plt.ylabel('Humidity (%)')
+    plt.title('Temperature vs. Humidity Prediction')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
+# Main function
+def main():
+    weather_data = scrape_weather_data()
+    print("Weather Data:")
+    print(weather_data)
+    
+    predict_weather(weather_data)
 
-# Convert temperature to numerical
-weather_data['Temperature'] = weather_data['Temperature'].str.replace('°', '').astype(int)
-
-# Optional: Handle missing values if any
-
-# Convert date to numerical for modeling (days since the start)
-weather_data['Date'] = pd.to_datetime(weather_data['Date'])
-weather_data['Days'] = (weather_data['Date'] - weather_data['Date'].min()).dt.days
-
-# Prepare data for modeling
-X = weather_data[['Days']].values
-y = weather_data['Temperature'].values
-
-# Create a linear regression model
-model = LinearRegression()
-model.fit(X, y)
-
-# Predict temperatures for future dates
-future_days = np.arange(weather_data['Days'].max() + 1, weather_data['Days'].max() + 31).reshape(-1, 1)
-future_temperatures = model.predict(future_days)
-
-# Visualize predictions
-
-
-plt.figure(figsize=(10, 6))
-plt.scatter(X, y, color='blue', label='Actual Temperatures')
-plt.plot(future_days, future_temperatures, color='red', linestyle='--', label='Predicted Trend')
-plt.xlabel('Days')
-plt.ylabel('Temperature')
-plt.title('Temperature Trend Prediction')
-plt.legend()
-plt.grid(True)
-plt.show()
+if __name__ == '__main__':
+    main()
